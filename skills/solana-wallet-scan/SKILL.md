@@ -1,6 +1,6 @@
 ---
 name: solana-wallet-scan
-description: Scans a Solana wallet address's on-chain trade history and reports win rate, realized PnL, hold times, and copy-trade risk flags (funding-cluster/wallet-farm pattern, sniper timing, suspiciously high win rate). Use when the user gives a Solana wallet address and asks to scan, analyze, check, or decide whether to copy-trade it.
+description: Scans a Solana wallet address's on-chain trade history and reports win rate, realized PnL, hold times, and copy-trade risk flags (funding-cluster/wallet-farm pattern, sniper timing, suspiciously high win rate, creator snipe-and-dump on its own token launches). Use when the user gives a Solana wallet address and asks to scan, analyze, check, or decide whether to copy-trade it.
 ---
 
 # Solana wallet scan
@@ -43,3 +43,28 @@ the scanned window), say so explicitly — that's a "raise the --limit" case, no
 This is a heuristic scan over recent history, not a guarantee — say that too. It approximates
 per-token PnL from SOL balance deltas around token balance changes in the same tx; multi-token
 swaps in a single tx can blur the split between them.
+
+## Second script: creator snipe-and-dump check
+
+A wallet's aggregate win rate can look genuinely good (high win rate, no reliance on lucky
+outliers) while hiding a specific inflating pattern: it creates its own tokens, buys its own
+launch in the first second (an entry no outsider gets), and dumps within minutes before the
+token dies. That's not trading skill, it's creator advantage, and it counts toward the same win
+rate number a copy-trade decision would rely on. **Measured live**: a wallet screened as a strong
+59% win-rate candidate turned out to have created 84 tokens, all now dead, with 93% of a sampled
+batch showing a self-buy-to-self-sell gap under 5 minutes — fastest one was 5 seconds.
+
+```
+python3 scripts/check_creator_dump.py <WALLET_ADDRESS> [--chain sol] [--dump-seconds 300] [--sample 20]
+```
+
+Pulls every token the wallet created (`gmgn-cli portfolio created-tokens`), then for a sample of
+them checks that same wallet's own first-buy-to-first-sell gap on its own launch
+(`gmgn-cli portfolio activity --token <addr>`). Reports what fraction come back inside the dump
+window (default 5 minutes) and flags the wallet if it's 30%+.
+
+**Run this whenever `portfolio stats`/`common.created_token_count` on the main scan shows any
+non-zero created-token count before trusting that wallet's win rate.** A wallet that created zero
+tokens can't have this problem — this check only applies when there's something to check.
+Rate-paced (1.5s between token checks) and retries through GMGN's holder/activity rate limit the
+same way the concentration checker in the token2022-forensics skill does.
