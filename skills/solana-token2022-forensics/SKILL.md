@@ -58,14 +58,40 @@ look clean on every check we've built so far and still be structured to rob you.
   safe just because it wasn't flagged CRITICAL. Solana adds new extensions over time; look up
   whatever shows here before trusting it.
 
+## Second script: effective vs naive holder concentration
+
+`top_10_holder_rate` only catches concentration when it's held in a few large wallets. It
+structurally cannot see one entity that split its stake across hundreds of small wallets — each
+individually below the top-10 cutoff, each trading normally on its own — which is exactly how a
+40%+ stake can hide behind a clean-looking 20% top-10 number.
+
+```
+python3 scripts/check_effective_concentration.py <MINT_ADDRESS> [--chain sol]
+```
+
+Sums GMGN's own server-side wallet-tag classifications (`bundler`, `sniper`, `rat_trader`,
+`fresh_wallet`) across up to 100 holders per tag, dedupes wallets carrying more than one tag, and
+compares the union against the naive top-10 number. A wallet tagged both `bundler` and
+`fresh_wallet` — created and bundled into the launch simultaneously — is the strongest single
+tell of coordinated rather than organic ownership.
+
+**Needs `gmgn-cli` configured** (unlike the extension checker, which is pure RPC). Paces its own
+requests — GMGN's holder endpoint rate-limits fast (hit a temporary IP ban during testing from 4
+back-to-back calls) — and refuses to report a verdict if any tag query failed rather than
+silently treating a failed fetch as zero concentration.
+
+Measured on PURR: naive top-10 said 22.5%; 190 distinct tagged wallets actually held 44.6%
+combined, with 22 of them carrying both `bundler` and `fresh_wallet` tags at once.
+
 ## What this does NOT check
 
 - LP lock legitimacy (which program actually holds the LP tokens, is it a reputable locker, when
   does it unlock) — not built. `lock_summary` from `gmgn-cli token security` is still the source
   for that, with the same caveat that it's trusting GMGN's read of it.
-- Funding-cluster / Sybil holder analysis (are the top holders actually independent wallets, or
-  all funded from one source) — that's `solana-wallet-scan` in this same repo, run per top holder,
-  not built into this skill.
+- The concentration check above trusts GMGN's own tag classification rather than independently
+  reconstructing the funding graph from raw RPC — faster and already computed, but it inherits
+  whatever GMGN's tagger gets wrong. `solana-wallet-scan`'s funder-cluster check in this same repo
+  does the raw-RPC version, one candidate wallet at a time, if that independent cross-check matters.
 - Anything on EVM chains — Token-2022 is Solana-specific. A `0x...` address isn't in scope here.
 
 This is one more independent check, not a complete audit. Combine it with `gmgn-contract-dd` and
